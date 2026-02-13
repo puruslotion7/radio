@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Faroese Radio Player</title>
+  <title>Føroysk útvørp</title>
 
   <link rel="preconnect" href="https://stream-secure.midlar.fo" crossorigin>
   <link rel="preconnect" href="https://play.kringvarp.fo" crossorigin>
@@ -55,9 +55,10 @@
       --audioText: #0b0f17;
     }
 
+    * { box-sizing: border-box; }
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    body { margin:0; background:var(--bg); color:var(--fg); }
-    .wrap { max-width:900px; margin:auto; padding:24px; }
+    body { margin:0; background:var(--bg); color:var(--fg); overflow-x: hidden; }
+    .wrap { max-width:900px; margin:auto; padding:24px; width: 100%; }
 
     h1 { margin: 0; }
     .header {
@@ -112,6 +113,7 @@
       display:grid;
       grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
       gap:14px;
+      grid-auto-rows: 1fr;
     }
 
     .station {
@@ -149,6 +151,10 @@
       opacity: 0.85;
       color: var(--muted);
       margin-top: -6px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .station .icon {
       width: 40px;
@@ -178,6 +184,21 @@
       background:var(--statusBg);
       font-size:14px;
       color: var(--muted);
+    }
+
+    .visitor-count {
+      margin-top:10px;
+      padding:8px 12px;
+      border-radius:12px;
+      background:var(--statusBg);
+      font-size:13px;
+      color: var(--muted);
+      text-align: center;
+      opacity: 0.8;
+    }
+    .visitor-count #visitorNumber {
+      font-weight: 600;
+      color: var(--fg);
     }
 
     /* Equalizer */
@@ -296,7 +317,7 @@
 <body>
 <div class="wrap">
   <div class="header">
-    <h1>Føroysk radio</h1>
+    <h1>Føroysk útvørp</h1>
 
     <div class="theme-toggle" aria-label="Theme toggle">
       <span class="switch-icon" aria-hidden="true">☾</span>
@@ -314,6 +335,10 @@
   </div>
 
   <div class="status" id="status">Status: idle</div>
+
+  <div class="visitor-count" id="visitorCount">
+    <span id="visitorNumber">-</span> online
+  </div>
 </div>
 
 <!-- HLS.js for Chrome/Firefox/Edge -->
@@ -321,19 +346,56 @@
 
 <script>
   const STATIONS = [
-    // KVF (main): HTTPS HLS
-    { name: "KVF", type: "hls", stream: "https://play.kringvarp.fo/redirect/tingradio/_definst_/smil:tingradio.smil?type=m3u8", subtitle: "KVF" },
-
-    // KVF2: HTTPS HLS (your discovered URL)
-    { name: "KVF2", type: "hls", stream: "https://w-live-edge1.kringvarp.fo/radio2/_definst_/smil:radio2.smil/playlist.m3u8", subtitle: "KVF 2" },
-
-    // Tingvarp: HTTPS HLS (your discovered URL)
-    { name: "Tingvarp", type: "hls", stream: "https://w-live-edge1.kringvarp.fo/tingradio/_definst_/smil:tingradio.smil/playlist.m3u8", subtitle: "Tingvarp" },
-
-    { name: "FM1",    type: "direct", stream: "https://stream-secure.midlar.fo/fm1-128",    subtitle: "Tín Miðil" },
-    { name: "Voxpop", type: "direct", stream: "https://stream-secure.midlar.fo/voxpop-128", subtitle: "Radio FM 104.1" },
-    { name: "Lindin", type: "direct", stream: "https://high.lindin.fo/", subtitle: "Kristiligt Kringvarp" },
-  ];
+    {
+      name: "KVF",
+      type: "hls",
+      stream: "https://play.kringvarp.fo/redirect/tingradio/_definst_/smil:tingradio.smil?type=m3u8",
+      subtitle: "KVF",
+      volume: 1.0 // 0.0 to 1.0, adjust per station
+    },
+    {
+      name: "KVF2",
+      type: "hls",
+      stream: "https://w-live-edge1.kringvarp.fo/radio2/_definst_/smil:radio2.smil/playlist.m3u8",
+      subtitle: "KVF 2",
+      volume: 1.0
+    },
+    {
+      name: "Tingvarp",
+      type: "hls",
+      stream: "https://w-live-edge1.kringvarp.fo/tingradio/_definst_/smil:tingradio.smil/playlist.m3u8",
+      subtitle: "Tingvarp",
+      volume: 1.0
+    },
+    {
+      name: "FM1",
+      type: "direct",
+      stream: "https://stream-secure.midlar.fo/fm1-128",
+      subtitle: "Tín Miðil",
+      volume: 1.0
+    },
+    {
+      name: "Voxpop",
+      type: "direct",
+      stream: "https://stream-secure.midlar.fo/voxpop-128",
+      subtitle: "Radio FM 104.1",
+      volume: 0.6
+    },
+    {
+      name: "Lindin",
+      type: "direct",
+      stream: "https://high.lindin.fo/",
+      subtitle: "Kristiligt Kringvarp",
+      volume: 0.6
+    },
+    {
+      name: "Aldan",
+      type: "direct",
+      stream: "https://streaming.radio.co/s4d14b9fcc/listen",
+      subtitle: "Hitt Radio",
+      volume: 0.5
+    },
+  ].sort((a, b) => a.name.localeCompare(b.name));
 
   const audio = document.getElementById("audio");
   const stationsContainer = document.getElementById("stations");
@@ -371,6 +433,10 @@
   let currentIndex = null;
   let bufferingTimer = null;
   const BUFFERING_MESSAGE_DELAY_MS = 500;
+  let metadataPollers = {};
+  let errorRetryCount = 0;
+  const MAX_RETRY_ATTEMPTS = 3;
+  const RETRY_DELAY_MS = 3000;
 
   /* ===== HLS integration ===== */
   let hls = null;
@@ -414,6 +480,96 @@
     audio.src = url;
   }
 
+  /* ===== Metadata polling and SSE ===== */
+  let sseConnections = {};
+
+  function startAllMetadataPolling() {
+    STATIONS.forEach((station, index) => {
+      // If station has SSE endpoint, use that instead of polling
+      if (station.sseEndpoint) {
+        startSSE(station, index);
+      } else if (station.metadataCallback) {
+        startPolling(station, index);
+      }
+    });
+  }
+
+  function startSSE(station, index) {
+    try {
+      const eventSource = new EventSource(station.sseEndpoint);
+
+      eventSource.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          const metadata = data.radiotext || data.title || data.artist || null;
+          console.log(`SSE data for ${station.name}:`, metadata);
+          updateNowPlaying(index, metadata);
+        } catch (err) {
+          console.error(`SSE parse error for ${station.name}:`, err);
+        }
+      };
+
+      eventSource.onerror = function(err) {
+        console.error(`SSE error for ${station.name}, falling back to polling`, err);
+        eventSource.close();
+        // Fallback to polling if SSE fails
+        if (station.metadataCallback) {
+          startPolling(station, index);
+        }
+      };
+
+      sseConnections[index] = eventSource;
+    } catch (err) {
+      console.error(`SSE setup failed for ${station.name}:`, err);
+      // Fallback to polling
+      if (station.metadataCallback) {
+        startPolling(station, index);
+      }
+    }
+  }
+
+  function startPolling(station, index) {
+    async function poll() {
+      try {
+        const metadata = await station.metadataCallback();
+        // Only log when metadata is found
+        if (metadata) {
+          console.log(`✓ ${station.name}:`, metadata);
+        }
+        updateNowPlaying(index, metadata);
+      } catch (err) {
+        console.error(`Metadata fetch failed for ${station.name}:`, err);
+      }
+    }
+
+    // Poll immediately
+    poll();
+
+    // Then poll every 10 seconds
+    metadataPollers[index] = setInterval(poll, 10000);
+  }
+
+  function updateNowPlaying(index, text) {
+    const stationCard = document.querySelectorAll(".station")[index];
+    if (!stationCard) return;
+
+    const subTextEl = stationCard.querySelector(".subText");
+    if (!subTextEl) return;
+
+    if (text) {
+      // Show now playing
+      subTextEl.textContent = `♫ ${text}`;
+      subTextEl.title = text;
+      subTextEl.style.fontStyle = "italic";
+    } else {
+      // Show subtitle
+      const subtitle = subTextEl.getAttribute("data-subtitle") || "";
+      subTextEl.textContent = subtitle;
+      subTextEl.title = "";
+      subTextEl.style.fontStyle = "normal";
+    }
+  }
+
   /* ===== UI ===== */
   function setStatus(msg){ status.textContent = "Status: " + msg; }
 
@@ -440,7 +596,7 @@
       div.innerHTML = `
       <div class="logoText">${station.name}</div>
       <div class="eq" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div class="subText">${station.subtitle || ""}</div>
+      <div class="subText" data-subtitle="${station.subtitle || ""}">${station.subtitle || ""}</div>
       <div class="icon" aria-hidden="true">${playIcon()}</div>
     `;
 
@@ -512,6 +668,9 @@
     attachStreamToAudio(station);
     audio.load();
 
+    // Set station-specific volume
+    audio.volume = station.volume ?? 1.0;
+
     try {
       updateUI("loading");
       scheduleBufferingStatus();
@@ -529,7 +688,10 @@
   audio.addEventListener("waiting", () => { updateUI("loading"); scheduleBufferingStatus(); });
   audio.addEventListener("playing", () => {
     cancelBufferingStatus();
-    if (currentIndex != null) setStatus("Playing " + STATIONS[currentIndex].name);
+    errorRetryCount = 0; // Reset error count on successful playback
+    if (currentIndex != null) {
+      setStatus("Playing " + STATIONS[currentIndex].name);
+    }
     updateUI();
   });
   audio.addEventListener("pause", () => {
@@ -545,13 +707,68 @@
   });
   audio.addEventListener("error", () => {
     cancelBufferingStatus();
-    setStatus("Stream error (network/CORS/codec).");
-    updateUI();
+
+    if (currentIndex !== null && errorRetryCount < MAX_RETRY_ATTEMPTS) {
+      errorRetryCount++;
+      setStatus(`Connection lost. Retrying (${errorRetryCount}/${MAX_RETRY_ATTEMPTS})...`);
+
+      // Retry after delay
+      setTimeout(async () => {
+        if (currentIndex !== null) {
+          const station = STATIONS[currentIndex];
+          try {
+            destroyHls();
+            audio.removeAttribute("src");
+            audio.load();
+
+            attachStreamToAudio(station);
+            audio.load();
+            audio.volume = station.volume ?? 1.0;
+
+            await audio.play();
+            errorRetryCount = 0; // Reset on success
+            setStatus(`Playing ${station.name}`);
+          } catch (e) {
+            setStatus(`Retry failed (${errorRetryCount}/${MAX_RETRY_ATTEMPTS})`);
+          }
+        }
+      }, RETRY_DELAY_MS);
+    } else {
+      errorRetryCount = 0;
+      setStatus("Stream error. Please try again.");
+      updateUI();
+    }
   });
 
   // Init
   renderStations();
   updateUI();
+  startAllMetadataPolling();
+
+  /* ===== Visitor tracking with SSE ===== */
+  const visitorNumberEl = document.getElementById('visitorNumber');
+
+  try {
+    const eventSource = new EventSource('/api/visitors/stream');
+
+    eventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        if (visitorNumberEl) {
+          visitorNumberEl.textContent = data.count;
+        }
+      } catch (err) {
+        console.error('Failed to parse visitor count:', err);
+      }
+    };
+
+    eventSource.onerror = function(err) {
+      console.error('Visitor count SSE error:', err);
+      // Will automatically reconnect
+    };
+  } catch (err) {
+    console.error('Failed to initialize visitor tracking:', err);
+  }
 </script>
 </body>
 </html>
