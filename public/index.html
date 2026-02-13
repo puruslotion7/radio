@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Faroese Radio Player</title>
+
+<!-- ✅ Preconnect must match the actual origin (scheme + host + port) -->
+<link rel="preconnect" href="https://stream-secure.midlar.fo" crossorigin>
+<link rel="preconnect" href="https://netvarp.kringvarp.fo" crossorigin>
+
+<style>
+/* Theme tokens */
+:root{
+  --bg: #0b0f17;
+  --fg: #ffffff;
+  --muted: rgba(255,255,255,0.8);
+  --card: rgba(255,255,255,0.06);
+  --cardHover: rgba(255,255,255,0.12);
+  --border: rgba(255,255,255,0.12);
+  --border2: rgba(255,255,255,0.10);
+  --chip: rgba(0,0,0,0.20);
+  --chip2: rgba(0,0,0,0.25);
+  --statusBg: rgba(255,255,255,0.08);
+  --accent: #2b6cff;
+
+  --dockBg: rgba(15, 20, 35, 0.92);
+  --dockBorder: rgba(255,255,255,0.14);
+  --shadow: 0 12px 35px rgba(0,0,0,0.45);
+
+  /* AUDIO: dark mode -> blend into dock/card */
+  --audioEnclosureBg: transparent;
+  --audioPanelBg: transparent;
+  --audioText: #ffffff;
+}
+
+html[data-theme="light"]{
+  --bg: #f6f7fb;
+  --fg: #0b0f17;
+  --muted: rgba(0,0,0,0.75);
+  --card: rgba(0,0,0,0.04);
+  --cardHover: rgba(0,0,0,0.07);
+  --border: rgba(0,0,0,0.10);
+  --border2: rgba(0,0,0,0.10);
+  --chip: rgba(255,255,255,0.75);
+  --chip2: rgba(255,255,255,0.85);
+  --statusBg: rgba(0,0,0,0.05);
+
+  --dockBg: rgba(255,255,255,0.92);
+  --dockBorder: rgba(0,0,0,0.10);
+  --shadow: 0 12px 35px rgba(0,0,0,0.15);
+
+  /* AUDIO: light mode -> nice light control background */
+  --audioEnclosureBg: rgba(255,255,255,0.88);
+  --audioPanelBg: rgba(255,255,255,0.88);
+  --audioText: #0b0f17;
+}
+
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+body { margin:0; background:var(--bg); color:var(--fg); }
+.wrap { max-width:900px; margin:auto; padding:24px; }
+
+h1 { margin: 0; }
+.header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Toggle switch */
+.theme-toggle {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  user-select:none;
+  font-size: 13px;
+  color: var(--muted);
+}
+.switch {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.knob {
+  position:absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--fg);
+  opacity: 0.9;
+  transition: transform 180ms ease;
+}
+.switch[data-on="true"] .knob { transform: translateX(20px); }
+.switch-icon {
+  width: 16px;
+  height: 16px;
+  display:grid;
+  place-items:center;
+  opacity: 0.85;
+}
+
+/* Stations grid */
+.stations {
+  display:grid;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  gap:14px;
+}
+
+.station {
+  padding:18px;
+  border-radius:16px;
+  background:var(--card);
+  border:1px solid var(--border);
+  cursor:pointer;
+  transition:0.15s ease;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+  text-align:center;
+  position: relative;
+  user-select: none;
+}
+.station:hover { background:var(--cardHover); transform:translateY(-2px); }
+.station.active { border:2px solid var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--card)); }
+
+.station .logoText {
+  width: 100%;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--chip);
+  border: 1px solid var(--border2);
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  font-size: 18px;
+}
+.station .subText {
+  font-size: 12px;
+  opacity: 0.85;
+  color: var(--muted);
+  margin-top: -6px;
+}
+.station .icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--chip2);
+  border: 1px solid var(--border2);
+}
+.station .icon svg { width: 22px; height: 22px; opacity: 0.95; }
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border-top: 2px solid var(--fg);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.status {
+  margin-top:15px;
+  padding:10px 12px;
+  border-radius:12px;
+  background:var(--statusBg);
+  font-size:14px;
+  color: var(--muted);
+}
+
+/* Equalizer */
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 14px;
+  margin-top: 2px;
+  opacity: 0.75;
+}
+.eq span {
+  width: 3px;
+  height: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform-origin: bottom;
+  opacity: 0.8;
+}
+.station.playing .eq span { animation: wave 1.0s ease-in-out infinite; }
+.station.playing .eq span:nth-child(2) { animation-delay: 0.15s; }
+.station.playing .eq span:nth-child(3) { animation-delay: 0.30s; }
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.6); opacity: 0.55; }
+  50% { transform: scaleY(1.35); opacity: 1; }
+}
+
+/* Dock wrapper */
+.player-dock { margin-top: 24px; }
+
+/* Audio element */
+.styled-audio {
+  width: 100%;
+  display: block;
+  border-radius: 16px;
+  background: var(--card);
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* ===== WebKit native controls: style BOTH layers ===== */
+.styled-audio::-webkit-media-controls-enclosure {
+  background-color: var(--audioEnclosureBg) !important;
+  border-radius: 12px;
+}
+.styled-audio::-webkit-media-controls-panel {
+  background-color: var(--audioPanelBg) !important;
+  border-radius: 12px;
+}
+
+.styled-audio::-webkit-media-controls-current-time-display,
+.styled-audio::-webkit-media-controls-time-remaining-display {
+  color: var(--audioText) !important;
+}
+
+/* Dark mode: keep timeline visible against dark dock/card */
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-timeline {
+  filter: invert(1);
+}
+
+/* ✅ Dark mode: make icon buttons white (play/pause + volume etc.) */
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-play-button,
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-mute-button,
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-volume-slider-container,
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-fullscreen-button,
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-seek-back-button,
+html:not([data-theme="light"])
+.styled-audio::-webkit-media-controls-seek-forward-button {
+  filter: invert(1);
+}
+
+/* Mobile optimization + docked player */
+@media (max-width: 600px) {
+  .wrap { padding: 16px; padding-bottom: 140px; }
+
+  .stations { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .station { padding: 12px; gap: 6px; }
+  .station .logoText { height: 36px; font-size: 15px; }
+  .station .subText { font-size: 11px; }
+  .station .icon { width: 32px; height: 32px; }
+  .station .icon svg { width: 18px; height: 18px; }
+  .eq { height: 10px; }
+  .eq span { width: 2px; height: 5px; }
+
+  .player-dock {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 999;
+
+    padding: 10px;
+    border-radius: 18px;
+    background: var(--dockBg);
+    border: 1px solid var(--dockBorder);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+    max-width: calc(100vw - 24px);
+  }
+
+  .player-dock .styled-audio {
+    padding: 0;
+    background: transparent;
+  }
+}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>Føroysk radio</h1>
+
+    <div class="theme-toggle" aria-label="Theme toggle">
+      <span class="switch-icon" aria-hidden="true">☾</span>
+      <div id="themeSwitch" class="switch" role="switch" aria-checked="false" tabindex="0" data-on="false">
+        <div class="knob"></div>
+      </div>
+      <span class="switch-icon" aria-hidden="true">☀︎</span>
+    </div>
+  </div>
+
+  <div class="stations" id="stations"></div>
+
+  <div class="player-dock">
+    <audio id="audio" class="styled-audio" controls preload="auto" playsinline></audio>
+  </div>
+
+  <div class="status" id="status">Status: idle</div>
+</div>
+
+<script>
+const STATIONS = [
+  // ✅ Use HTTPS to avoid mixed-content upgrade/retry delays
+  { name: "KVF",      stream: "http://netvarp.kringvarp.fo:443/uvhm",      subtitle: "KVF" },
+  { name: "KVF2",     stream: "http://netvarp.kringvarp.fo:4443/kvf2_2",   subtitle: "KVF 2" },
+  { name: "Tingvarp", stream: "http://netvarp.kringvarp.fo:4443/tingvarp", subtitle: "Tingvarp" },
+  { name: "FM1",      stream: "https://stream-secure.midlar.fo/fm1-128",    subtitle: "Tín Miðil" },
+  { name: "Voxpop",   stream: "https://stream-secure.midlar.fo/voxpop-128", subtitle: "Radio FM 104.1" },
+  { name: "Lindin",   stream: "https://high.lindin.fo/", subtitle: "Kristiligt Kringvarp" },
+];
+
+const audio = document.getElementById("audio");
+const stationsContainer = document.getElementById("stations");
+const status = document.getElementById("status");
+
+/* Theme toggle */
+const themeSwitch = document.getElementById("themeSwitch");
+const THEME_KEY = "radioTheme";
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const isLight = theme === "light";
+  themeSwitch.dataset.on = String(isLight);
+  themeSwitch.setAttribute("aria-checked", String(isLight));
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  const next = current === "light" ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+themeSwitch.addEventListener("click", toggleTheme);
+themeSwitch.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTheme(); }
+});
+
+// Init theme: saved → else system preference → else dark
+(function initTheme(){
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === "light" || saved === "dark") return applyTheme(saved);
+  const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  applyTheme(prefersLight ? "light" : "dark");
+})();
+
+audio.crossOrigin = "anonymous";
+
+let currentIndex = null;
+let bufferingTimer = null;
+const BUFFERING_MESSAGE_DELAY_MS = 500;
+
+function setStatus(msg){ status.textContent = "Status: " + msg; }
+
+function playIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M8 5v14l11-7z"></path>
+  </svg>`;
+}
+function pauseIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M6 5h4v14H6zm8 0h4v14h-4z"></path>
+  </svg>`;
+}
+function spinnerIcon() { return `<div class="spinner" aria-hidden="true"></div>`; }
+
+function renderStations(){
+  STATIONS.forEach((station, index) => {
+    const div = document.createElement("div");
+    div.className = "station";
+    div.setAttribute("role", "button");
+    div.setAttribute("tabindex", "0");
+    div.setAttribute("aria-label", `Toggle ${station.name}`);
+
+    div.innerHTML = `
+      <div class="logoText">${station.name}</div>
+      <div class="eq" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="subText">${station.subtitle || ""}</div>
+      <div class="icon" aria-hidden="true">${playIcon()}</div>
+    `;
+
+    div.addEventListener("click", () => toggleStation(index));
+    div.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleStation(index); }
+    });
+
+    stationsContainer.appendChild(div);
+  });
+}
+
+function updateUI(state = null) {
+  document.querySelectorAll(".station").forEach((el, idx) => {
+    const iconContainer = el.querySelector(".icon");
+    const isCurrent = (idx === currentIndex);
+    const isPlaying = isCurrent && !audio.paused && audio.src;
+
+    el.classList.toggle("active", isCurrent);
+    el.classList.toggle("playing", isPlaying);
+
+    if (!isCurrent) { iconContainer.innerHTML = playIcon(); return; }
+    if (state === "loading") { iconContainer.innerHTML = spinnerIcon(); return; }
+
+    iconContainer.innerHTML = isPlaying ? pauseIcon() : playIcon();
+  });
+}
+
+function scheduleBufferingStatus() {
+  clearTimeout(bufferingTimer);
+  bufferingTimer = setTimeout(() => {
+    const name = currentIndex != null ? STATIONS[currentIndex].name : "stream";
+    setStatus("Buffering… (" + name + ")");
+  }, BUFFERING_MESSAGE_DELAY_MS);
+}
+function cancelBufferingStatus() { clearTimeout(bufferingTimer); bufferingTimer = null; }
+
+function withCacheBust(url) {
+  const u = new URL(url);
+  // Optional: can help avoid “stuck” cached connections on some networks
+  u.searchParams.set("_", String(Date.now()));
+  return u.toString();
+}
+
+async function toggleStation(index){
+  const station = STATIONS[index];
+
+  // Toggle play/pause if same station clicked
+  if (currentIndex === index && audio.src) {
+    if (audio.paused) {
+      try {
+        updateUI("loading");
+        scheduleBufferingStatus();
+        await audio.play();
+        cancelBufferingStatus();
+        setStatus(`Playing ${station.name}`);
+      } catch (e) {
+        cancelBufferingStatus();
+        setStatus("Error: " + (e?.message || e));
+      }
+    } else {
+      audio.pause();
+      setStatus(`Paused ${station.name}`);
+    }
+    updateUI();
+    return;
+  }
+
+  // Switch station
+  currentIndex = index;
+
+  audio.pause();
+  audio.removeAttribute("src");
+
+  // ✅ Cache-bust is optional; remove if you don’t want it
+  audio.src = withCacheBust(station.stream);
+
+  audio.load();
+
+  try {
+    updateUI("loading");
+    scheduleBufferingStatus();
+    await audio.play();
+    cancelBufferingStatus();
+    setStatus(`Playing ${station.name}`);
+  } catch(e){
+    cancelBufferingStatus();
+    setStatus("Error: " + (e?.message || e));
+  }
+
+  updateUI();
+}
+
+audio.addEventListener("waiting", () => {
+  updateUI("loading");
+  scheduleBufferingStatus();
+});
+audio.addEventListener("playing", () => {
+  cancelBufferingStatus();
+  if (currentIndex != null) setStatus("Playing " + STATIONS[currentIndex].name);
+  updateUI();
+});
+audio.addEventListener("pause", () => {
+  cancelBufferingStatus();
+  if (currentIndex != null && audio.src) setStatus("Paused " + STATIONS[currentIndex].name);
+  updateUI();
+});
+audio.addEventListener("ended", () => {
+  cancelBufferingStatus();
+  setStatus("Stopped");
+  currentIndex = null;
+  updateUI();
+});
+audio.addEventListener("error", () => {
+  cancelBufferingStatus();
+  setStatus("Stream error (network/CORS/codec).");
+  updateUI();
+});
+
+// Init
+renderStations();
+updateUI();
+</script>
+</body>
+</html>
