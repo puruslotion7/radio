@@ -19,8 +19,6 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', ws => {
-  console.log('New visitor connected. Total:', wss.clients.size);
-
   // Send initial count to new client
   ws.send(JSON.stringify({ count: wss.clients.size }));
 
@@ -28,12 +26,11 @@ wss.on('connection', ws => {
   broadcastCount();
 
   ws.on('close', () => {
-    console.log('Visitor disconnected. Total:', wss.clients.size);
     broadcastCount();
   });
 
-  ws.on('error', error => {
-    console.error('WebSocket error:', error);
+  ws.on('error', () => {
+    // Silent error handling
   });
 });
 

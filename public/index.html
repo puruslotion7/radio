@@ -350,56 +350,69 @@
       name: "KVF",
       type: "hls",
       stream: "https://play.kringvarp.fo/redirect/tingradio/_definst_/smil:tingradio.smil?type=m3u8",
-      subtitle: "KVF",
-      volume: 1.0 // 0.0 to 1.0, adjust per station
+      subtitle: "",
+      volume: 2.0 // 0.0 to 1.0, adjust per station
     },
     {
       name: "KVF2",
       type: "hls",
       stream: "https://w-live-edge1.kringvarp.fo/radio2/_definst_/smil:radio2.smil/playlist.m3u8",
-      subtitle: "KVF 2",
-      volume: 1.0
+      subtitle: "",
+      volume: 2.0
     },
     {
       name: "Tingvarp",
       type: "hls",
       stream: "https://w-live-edge1.kringvarp.fo/tingradio/_definst_/smil:tingradio.smil/playlist.m3u8",
-      subtitle: "Tingvarp",
-      volume: 1.0
+      subtitle: "",
+      volume: 2.0
     },
     {
       name: "FM1",
       type: "direct",
       stream: "https://stream-secure.midlar.fo/fm1-128",
-      subtitle: "Tín Miðil",
-      volume: 1.0
+      subtitle: "",
+      volume: 1.2
     },
     {
       name: "Voxpop",
       type: "direct",
       stream: "https://stream-secure.midlar.fo/voxpop-128",
-      subtitle: "Radio FM 104.1",
+      subtitle: "",
       volume: 0.6
     },
     {
       name: "Lindin",
       type: "direct",
       stream: "https://high.lindin.fo/",
-      subtitle: "Kristiligt Kringvarp",
-      volume: 0.6
+      subtitle: "",
+      volume: 1.0
     },
     {
       name: "Aldan",
       type: "direct",
       stream: "https://streaming.radio.co/s4d14b9fcc/listen",
-      subtitle: "Hitt Radio",
-      volume: 0.5
+      subtitle: "",
+      volume: 1.0
     },
   ].sort((a, b) => a.name.localeCompare(b.name));
 
   const audio = document.getElementById("audio");
   const stationsContainer = document.getElementById("stations");
   const status = document.getElementById("status");
+
+  /* ===== Web Audio API setup for gain control ===== */
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const gainNode = audioContext.createGain();
+  let audioSource = null;
+
+  function connectAudioWithGain() {
+    if (!audioSource) {
+      audioSource = audioContext.createMediaElementSource(audio);
+      audioSource.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+    }
+  }
 
   /* Theme toggle */
   const themeSwitch = document.getElementById("themeSwitch");
@@ -465,11 +478,12 @@
 
     if (wantsHls && !canNativeHls && window.Hls && window.Hls.isSupported()) {
       hls = new Hls({
-        lowLatencyMode: true,
-        backBufferLength: 0,
-        maxBufferLength: 10,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 4,
+        lowLatencyMode: false,
+        backBufferLength: 10,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 10,
         enableWorker: true
       });
       hls.loadSource(url);
@@ -668,8 +682,16 @@
     attachStreamToAudio(station);
     audio.load();
 
-    // Set station-specific volume
-    audio.volume = station.volume ?? 1.0;
+    // Connect Web Audio API on first play (requires user interaction)
+    connectAudioWithGain();
+
+    // Resume audio context if suspended (Safari requirement)
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+
+    // Set station-specific volume using gainNode (allows > 1.0)
+    gainNode.gain.value = station.volume ?? 1.0;
 
     try {
       updateUI("loading");
@@ -723,7 +745,7 @@
 
             attachStreamToAudio(station);
             audio.load();
-            audio.volume = station.volume ?? 1.0;
+            gainNode.gain.value = station.volume ?? 1.0;
 
             await audio.play();
             errorRetryCount = 0; // Reset on success
@@ -746,39 +768,27 @@
   startAllMetadataPolling();
 
   /* ===== Visitor tracking with WebSocket ===== */
-  console.log('🔍 Initializing visitor tracking...');
   const visitorNumberEl = document.getElementById('visitorNumber');
-  console.log('Visitor element found:', visitorNumberEl);
 
   // Create WebSocket connection
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}`;
-  console.log('Connecting to WebSocket:', wsUrl);
 
   const ws = new WebSocket(wsUrl);
-
-  ws.onopen = function() {
-    console.log('✓ WebSocket connected');
-  };
 
   ws.onmessage = function(event) {
     try {
       const data = JSON.parse(event.data);
       if (visitorNumberEl) {
         visitorNumberEl.textContent = data.count;
-        console.log('Visitor count:', data.count);
       }
     } catch (err) {
-      console.error('Failed to parse visitor count:', err);
+      // Silent error handling
     }
   };
 
-  ws.onerror = function(error) {
-    console.error('WebSocket error:', error);
-  };
-
   ws.onclose = function() {
-    console.log('WebSocket closed. Attempting to reconnect in 3s...');
+    // Attempt to reconnect after 3 seconds
     setTimeout(() => {
       window.location.reload();
     }, 3000);
