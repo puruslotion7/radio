@@ -772,9 +772,18 @@
     }
   }
 
+  // Start with simple polling first to test
+  console.log('Starting with polling...');
+  fetchVisitorCount();
+  pollingInterval = setInterval(fetchVisitorCount, 10000);
+
+  // Uncomment below to try SSE later
+  /*
   // Try SSE first
   try {
+    console.log('📡 Creating EventSource for /api/visitors/stream...');
     const eventSource = new EventSource('/api/visitors/stream');
+    console.log('EventSource created, readyState:', eventSource.readyState);
     sseAttempted = true;
 
     eventSource.onopen = function() {
@@ -820,6 +829,7 @@
     fetchVisitorCount();
     pollingInterval = setInterval(fetchVisitorCount, 10000);
   }
+  */
 </script>
 </body>
 </html>
