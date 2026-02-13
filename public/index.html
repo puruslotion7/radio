@@ -349,7 +349,7 @@
     {
       name: "KVF",
       type: "hls",
-      stream: "https://play.kringvarp.fo/redirect/tingradio/_definst_/smil:tingradio.smil?type=m3u8",
+      stream: "https://w-live-edge1.kringvarp.fo/radio/_definst_/smil:radio.smil/playlist.m3u8",
       subtitle: "",
       volume: 2.0 // 0.0 to 1.0, adjust per station
     },
@@ -473,10 +473,19 @@
 
     const wantsHls = station.type === "hls" || isM3U8(url);
     const canNativeHls =
-            audio.canPlayType("application/vnd.apple.mpegurl") ||
-            audio.canPlayType("application/x-mpegURL");
+            audio.canPlayType("application/vnd.apple.mpegurl") === 'probably' ||
+            audio.canPlayType("application/x-mpegURL") === 'probably';
+
+    console.log('🔧 attachStreamToAudio:', {
+      station: station.name,
+      url: url,
+      wantsHls: wantsHls,
+      canNativeHls: canNativeHls,
+      hlsSupported: window.Hls && window.Hls.isSupported()
+    });
 
     if (wantsHls && !canNativeHls && window.Hls && window.Hls.isSupported()) {
+      console.log('📦 Using hls.js for', station.name);
       hls = new Hls({
         lowLatencyMode: false,
         backBufferLength: 10,
@@ -484,13 +493,60 @@
         maxMaxBufferLength: 60,
         liveSyncDurationCount: 3,
         liveMaxLatencyDurationCount: 10,
-        enableWorker: true
+        enableWorker: true,
+        debug: false
       });
+
+      // Comprehensive HLS event logging
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        console.log('✅ HLS: Manifest parsed successfully');
+      });
+
+      hls.on(Hls.Events.LEVEL_LOADED, function(event, data) {
+        console.log('✅ HLS: Level loaded', data.details);
+      });
+
+      hls.on(Hls.Events.FRAG_LOADING, function(event, data) {
+        console.log('⏳ HLS: Loading fragment', data.frag.url);
+      });
+
+      hls.on(Hls.Events.FRAG_LOADED, function(event, data) {
+        console.log('✅ HLS: Fragment loaded', data.frag.url);
+      });
+
+      hls.on(Hls.Events.ERROR, function (event, data) {
+        console.error('❌ HLS Error:', {
+          type: data.type,
+          details: data.details,
+          fatal: data.fatal,
+          url: data.url,
+          response: data.response,
+          networkDetails: data.networkDetails
+        });
+
+        if (data.fatal) {
+          switch(data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.error('💥 Fatal network error - attempting recovery');
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.error('💥 Fatal media error - attempting recovery');
+              hls.recoverMediaError();
+              break;
+            default:
+              console.error('💥 Unrecoverable error - destroying HLS');
+              break;
+          }
+        }
+      });
+
       hls.loadSource(url);
       hls.attachMedia(audio);
       return;
     }
 
+    console.log('🎵 Using native audio playback for', station.name);
     audio.src = url;
   }
 
