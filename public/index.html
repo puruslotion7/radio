@@ -745,91 +745,44 @@
   updateUI();
   startAllMetadataPolling();
 
-  /* ===== Visitor tracking with SSE and polling fallback ===== */
+  /* ===== Visitor tracking with WebSocket ===== */
   console.log('🔍 Initializing visitor tracking...');
   const visitorNumberEl = document.getElementById('visitorNumber');
   console.log('Visitor element found:', visitorNumberEl);
-  let sseAttempted = false;
-  let sseWorking = false;
-  let pollingInterval = null;
 
-  async function fetchVisitorCount() {
-    console.log('📡 Fetching visitor count from /api/visitors...');
+  // Create WebSocket connection
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}`;
+  console.log('Connecting to WebSocket:', wsUrl);
+
+  const ws = new WebSocket(wsUrl);
+
+  ws.onopen = function() {
+    console.log('✓ WebSocket connected');
+  };
+
+  ws.onmessage = function(event) {
     try {
-      const response = await fetch('/api/visitors');
-      console.log('Response status:', response.status);
-      const data = await response.json();
-      console.log('Response data:', data);
+      const data = JSON.parse(event.data);
       if (visitorNumberEl) {
         visitorNumberEl.textContent = data.count;
-        console.log('✓ Updated display to:', data.count);
-      } else {
-        console.error('❌ visitorNumberEl is null!');
+        console.log('Visitor count:', data.count);
       }
-      console.log('Visitor count (polling):', data.count);
     } catch (err) {
-      console.error('❌ Failed to fetch visitor count:', err);
+      console.error('Failed to parse visitor count:', err);
     }
-  }
+  };
 
-  // Start with simple polling first to test
-  console.log('Starting with polling...');
-  fetchVisitorCount();
-  pollingInterval = setInterval(fetchVisitorCount, 10000);
+  ws.onerror = function(error) {
+    console.error('WebSocket error:', error);
+  };
 
-  // Uncomment below to try SSE later
-  /*
-  // Try SSE first
-  try {
-    console.log('📡 Creating EventSource for /api/visitors/stream...');
-    const eventSource = new EventSource('/api/visitors/stream');
-    console.log('EventSource created, readyState:', eventSource.readyState);
-    sseAttempted = true;
-
-    eventSource.onopen = function() {
-      console.log('✓ Visitor count SSE connected');
-      sseWorking = true;
-      // Stop polling if it was started
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-      }
-    };
-
-    eventSource.onmessage = function(event) {
-      try {
-        const data = JSON.parse(event.data);
-        if (visitorNumberEl) {
-          visitorNumberEl.textContent = data.count;
-        }
-        console.log('Visitor count (SSE):', data.count);
-      } catch (err) {
-        console.error('Failed to parse visitor count:', err);
-      }
-    };
-
-    eventSource.onerror = function(err) {
-      console.error('Visitor count SSE error:', err, 'readyState:', eventSource.readyState);
-
-      // If SSE fails, fall back to polling after 5 seconds
-      if (!sseWorking && !pollingInterval) {
-        console.log('SSE not working, falling back to polling...');
-        eventSource.close();
-        setTimeout(() => {
-          if (!pollingInterval) {
-            fetchVisitorCount();
-            pollingInterval = setInterval(fetchVisitorCount, 10000);
-          }
-        }, 5000);
-      }
-    };
-  } catch (err) {
-    console.error('Failed to initialize SSE:', err);
-    // Fall back to polling immediately
-    fetchVisitorCount();
-    pollingInterval = setInterval(fetchVisitorCount, 10000);
-  }
-  */
+  ws.onclose = function() {
+    console.log('WebSocket closed. Attempting to reconnect in 3s...');
+    setTimeout(() => {
+      window.location.reload();
+    }, 3000);
+  };
 </script>
 </body>
 </html>
