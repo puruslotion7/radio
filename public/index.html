@@ -751,11 +751,16 @@
   try {
     const eventSource = new EventSource('/api/visitors/stream');
 
+    eventSource.onopen = function() {
+      console.log('✓ Visitor count SSE connected');
+    };
+
     eventSource.onmessage = function(event) {
       try {
         const data = JSON.parse(event.data);
         if (visitorNumberEl) {
           visitorNumberEl.textContent = data.count;
+          console.log('Visitor count updated:', data.count);
         }
       } catch (err) {
         console.error('Failed to parse visitor count:', err);
@@ -763,8 +768,8 @@
     };
 
     eventSource.onerror = function(err) {
-      console.error('Visitor count SSE error:', err);
-      // Will automatically reconnect
+      console.error('Visitor count SSE error:', err, 'readyState:', eventSource.readyState);
+      // EventSource will automatically reconnect
     };
   } catch (err) {
     console.error('Failed to initialize visitor tracking:', err);

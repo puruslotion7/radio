@@ -10,6 +10,7 @@ const publicDir = path.join(process.cwd(), 'public');
 
 // Track active SSE connections
 const activeConnections = new Set<Response>();
+const connectionKeepAlives = new Map<Response, NodeJS.Timeout>();
 
 // SSE endpoint for visitor tracking
 app.get('/api/visitors/stream', (req: Request, res: Response) => {
@@ -17,9 +18,15 @@ app.get('/api/visitors/stream', (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable proxy buffering
+
+  // Flush headers immediately
+  res.flushHeaders();
 
   // Add this connection to active set
   activeConnections.add(res);
+
+  console.log(`New visitor connected. Total: ${activeConnections.size}`);
 
   // Send initial count
   res.write(`data: ${JSON.stringify({ count: activeConnections.size })}\n\n`);
@@ -27,9 +34,29 @@ app.get('/api/visitors/stream', (req: Request, res: Response) => {
   // Broadcast updated count to all connections
   broadcastCount();
 
+  // Send keepalive comments every 15 seconds to prevent timeout
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch (err) {
+      clearInterval(keepAlive);
+      activeConnections.delete(res);
+      connectionKeepAlives.delete(res);
+      broadcastCount();
+    }
+  }, 15000);
+
+  connectionKeepAlives.set(res, keepAlive);
+
   // Handle client disconnect
   req.on('close', () => {
+    const keepAliveTimer = connectionKeepAlives.get(res);
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      connectionKeepAlives.delete(res);
+    }
     activeConnections.delete(res);
+    console.log(`Visitor disconnected. Total: ${activeConnections.size}`);
     broadcastCount();
   });
 });
