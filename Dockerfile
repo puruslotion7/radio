@@ -9,6 +9,8 @@ RUN npm ci
 # Copy sources and build
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
+COPY public ./public
 RUN npm run build
 
 
@@ -22,10 +24,10 @@ ENV PORT=3000
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy compiled server
+# Copy compiled server and minified HTML
 COPY --from=build /app/dist ./dist
 
-# Copy static site
+# Copy original public folder as fallback for non-minified assets
 COPY public ./public
 
 EXPOSE 3000
