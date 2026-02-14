@@ -145,6 +145,7 @@
       font-weight: 800;
       letter-spacing: 0.6px;
       font-size: 18px;
+      position: relative;
     }
     .station .subText {
       font-size: 12px;
@@ -177,6 +178,26 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    .station.error {
+      border-color: #ff4444;
+      background: color-mix(in srgb, #ff4444 10%, var(--card));
+    }
+    .station.retrying .logoText::after {
+      content: '';
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ffaa00;
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.1); }
+    }
+
     .status {
       margin-top:15px;
       padding:10px 12px;
@@ -205,25 +226,19 @@
     .eq {
       display: inline-flex;
       align-items: flex-end;
-      gap: 3px;
-      height: 14px;
+      gap: 2px;
+      height: 16px;
       margin-top: 2px;
       opacity: 0.75;
     }
     .eq span {
-      width: 3px;
-      height: 6px;
-      border-radius: 2px;
+      width: 2px;
+      height: 16px;
+      border-radius: 1px;
       background: currentColor;
       transform-origin: bottom;
       opacity: 0.8;
-    }
-    .station.playing .eq span { animation: wave 1.0s ease-in-out infinite; }
-    .station.playing .eq span:nth-child(2) { animation-delay: 0.15s; }
-    .station.playing .eq span:nth-child(3) { animation-delay: 0.30s; }
-    @keyframes wave {
-      0%, 100% { transform: scaleY(0.6); opacity: 0.55; }
-      50% { transform: scaleY(1.35); opacity: 1; }
+      transition: transform 0.08s ease-out;
     }
 
     /* Dock wrapper */
@@ -350,57 +365,49 @@
       name: "KVF",
       type: "hls",
       stream: "https://w-live-edge1.kringvarp.fo/radio/_definst_/smil:radio.smil/playlist.m3u8",
-      subtitle: "",
-      volume: 2.0 // 0.0 to 1.0, adjust per station
+      subtitle: ""
     },
     {
       name: "KVF2",
       type: "hls",
       stream: "https://w-live-edge1.kringvarp.fo/radio2/_definst_/smil:radio2.smil/playlist.m3u8",
-      subtitle: "",
-      volume: 2.0
+      subtitle: ""
     },
     {
       name: "Tingvarp",
       type: "hls",
       stream: "https://w-live-edge1.kringvarp.fo/tingradio/_definst_/smil:tingradio.smil/playlist.m3u8",
-      subtitle: "",
-      volume: 2.0
+      subtitle: ""
     },
     {
       name: "FM1",
       type: "direct",
       stream: "https://stream-secure.midlar.fo/fm1-128",
-      subtitle: "",
-      volume: 1.2
+      subtitle: ""
     },
     {
       name: "Voxpop",
       type: "direct",
       stream: "https://stream-secure.midlar.fo/voxpop-128",
-      subtitle: "",
-      volume: 0.6
+      subtitle: ""
     },
     {
       name: "Lindin",
       type: "direct",
       stream: "https://high.lindin.fo/",
-      subtitle: "",
-      volume: 1.0
+      subtitle: ""
     },
     {
       name: "FM98,7",
       type: "direct",
       stream: "https://liveradio.stream.fo/listen/fm98,7/web",
-      subtitle: "",
-      volume: 1.0
+      subtitle: ""
     },
     {
       name: "Aldan",
       type: "direct",
       stream: "https://streaming.radio.co/s4d14b9fcc/listen",
-      subtitle: "",
-      volume: 1.0
+      subtitle: ""
     },
   ].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -408,17 +415,82 @@
   const stationsContainer = document.getElementById("stations");
   const status = document.getElementById("status");
 
-  /* ===== Web Audio API setup for gain control ===== */
+  /* ===== Web Audio API setup for gain control, compression, and analyser ===== */
   const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Set a baseline gain that works well across all stations
   const gainNode = audioContext.createGain();
+  gainNode.gain.value = 1.5; // Reasonable baseline - boost quieter stations
+
+  // Dynamic compressor for volume normalization
+  const compressor = audioContext.createDynamicsCompressor();
+  compressor.threshold.setValueAtTime(-24, audioContext.currentTime); // Start compressing at -24dB
+  compressor.knee.setValueAtTime(30, audioContext.currentTime); // Smooth compression curve
+  compressor.ratio.setValueAtTime(12, audioContext.currentTime); // 12:1 compression ratio
+  compressor.attack.setValueAtTime(0.003, audioContext.currentTime); // Fast attack (3ms)
+  compressor.release.setValueAtTime(0.25, audioContext.currentTime); // 250ms release
+
+  const analyserNode = audioContext.createAnalyser();
+  analyserNode.fftSize = 128;
+  analyserNode.smoothingTimeConstant = 0.7;
+
+  const frequencyData = new Uint8Array(analyserNode.frequencyBinCount);
   let audioSource = null;
+  let animationFrameId = null;
 
   function connectAudioWithGain() {
     if (!audioSource) {
       audioSource = audioContext.createMediaElementSource(audio);
+      // Chain: source -> gain -> compressor -> analyser -> output
       audioSource.connect(gainNode);
-      gainNode.connect(audioContext.destination);
+      gainNode.connect(compressor);
+      compressor.connect(analyserNode);
+      analyserNode.connect(audioContext.destination);
     }
+  }
+
+  /* ===== Real-time equalizer visualization ===== */
+  function updateEqualizer() {
+    if (!audio.paused && (audio.src || audio.currentSrc) && currentIndex !== null) {
+      analyserNode.getByteFrequencyData(frequencyData);
+
+      const stationCard = document.querySelectorAll(".station")[currentIndex];
+      if (stationCard) {
+        const bars = stationCard.querySelectorAll(".eq span");
+
+        // Map 10 frequency bands across the spectrum
+        for (let i = 0; i < 10; i++) {
+          const start = i * 5;
+          const end = start + 5;
+          const slice = frequencyData.slice(start, end);
+          const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+
+          // Scale values to reasonable bar heights (0.2 to 1.4)
+          const scale = 0.2 + (avg / 255) * 1.2;
+          bars[i].style.transform = `scaleY(${scale})`;
+        }
+      }
+    }
+
+    animationFrameId = requestAnimationFrame(updateEqualizer);
+  }
+
+  function startEqualizer() {
+    if (!animationFrameId) {
+      updateEqualizer();
+    }
+  }
+
+  function stopEqualizer() {
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+
+    // Reset all bars
+    document.querySelectorAll(".eq span").forEach(bar => {
+      bar.style.transform = 'scaleY(0.2)';
+    });
   }
 
   /* Theme toggle */
@@ -672,7 +744,7 @@
 
       div.innerHTML = `
       <div class="logoText">${station.name}</div>
-      <div class="eq" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="eq" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
       <div class="subText" data-subtitle="${station.subtitle || ""}">${station.subtitle || ""}</div>
       <div class="icon" aria-hidden="true">${playIcon()}</div>
     `;
@@ -695,8 +767,24 @@
       el.classList.toggle("active", isCurrent);
       el.classList.toggle("playing", isPlaying);
 
+      // Remove error/retry states when not current or when playing successfully
+      if (!isCurrent || isPlaying) {
+        el.classList.remove("error", "retrying");
+      }
+
       if (!isCurrent) { iconContainer.innerHTML = playIcon(); return; }
       if (state === "loading") { iconContainer.innerHTML = spinnerIcon(); return; }
+      if (state === "error") {
+        el.classList.add("error");
+        iconContainer.innerHTML = playIcon();
+        return;
+      }
+      if (state === "retrying") {
+        el.classList.add("retrying");
+        el.classList.remove("error");
+        iconContainer.innerHTML = spinnerIcon();
+        return;
+      }
 
       iconContainer.innerHTML = isPlaying ? pauseIcon() : playIcon();
     });
@@ -735,6 +823,8 @@
       return;
     }
 
+    // Switching to different station - stop equalizer and reset bars
+    stopEqualizer();
     currentIndex = index;
 
     try { audio.pause(); } catch {}
@@ -752,9 +842,6 @@
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
-
-    // Set station-specific volume using gainNode (allows > 1.0)
-    gainNode.gain.value = station.volume ?? 1.0;
 
     try {
       updateUI("loading");
@@ -778,23 +865,71 @@
       setStatus("Playing " + STATIONS[currentIndex].name);
     }
     updateUI();
+    startEqualizer();
   });
   audio.addEventListener("pause", () => {
     cancelBufferingStatus();
     if (currentIndex != null && (audio.src || audio.currentSrc)) setStatus("Paused " + STATIONS[currentIndex].name);
     updateUI();
+    stopEqualizer();
   });
   audio.addEventListener("ended", () => {
     cancelBufferingStatus();
-    setStatus("Stopped");
-    currentIndex = null;
-    updateUI();
+    stopEqualizer();
+
+    // Unexpected end for a live stream - try to reconnect
+    if (currentIndex !== null && (audio.src || audio.currentSrc)) {
+      console.log('⚠️ Stream ended unexpectedly, attempting reconnect...');
+      const station = STATIONS[currentIndex];
+
+      if (errorRetryCount < MAX_RETRY_ATTEMPTS) {
+        errorRetryCount++;
+        updateUI("retrying");
+        setStatus(`Stream interrupted. Reconnecting (${errorRetryCount}/${MAX_RETRY_ATTEMPTS})...`);
+
+        setTimeout(async () => {
+          if (currentIndex !== null) {
+            try {
+              destroyHls();
+              audio.removeAttribute("src");
+              audio.load();
+
+              attachStreamToAudio(station);
+              audio.load();
+
+              updateUI("loading");
+              await audio.play();
+              errorRetryCount = 0;
+              setStatus(`Playing ${station.name}`);
+              updateUI();
+            } catch (e) {
+              console.error('❌ Reconnect failed:', e);
+              if (errorRetryCount >= MAX_RETRY_ATTEMPTS) {
+                updateUI("error");
+                setStatus(`Failed to reconnect to ${station.name}. Click to retry.`);
+              }
+            }
+          }
+        }, RETRY_DELAY_MS);
+      } else {
+        updateUI("error");
+        setStatus("Stream disconnected. Click station to retry.");
+        errorRetryCount = 0;
+      }
+    } else {
+      // Normal stop
+      setStatus("Stopped");
+      currentIndex = null;
+      updateUI();
+    }
   });
   audio.addEventListener("error", () => {
     cancelBufferingStatus();
+    stopEqualizer();
 
     if (currentIndex !== null && errorRetryCount < MAX_RETRY_ATTEMPTS) {
       errorRetryCount++;
+      updateUI("retrying");
       setStatus(`Connection lost. Retrying (${errorRetryCount}/${MAX_RETRY_ATTEMPTS})...`);
 
       // Retry after delay
@@ -802,26 +937,34 @@
         if (currentIndex !== null) {
           const station = STATIONS[currentIndex];
           try {
+            console.log(`🔄 Retry attempt ${errorRetryCount} for ${station.name}`);
             destroyHls();
             audio.removeAttribute("src");
             audio.load();
 
             attachStreamToAudio(station);
             audio.load();
-            gainNode.gain.value = station.volume ?? 1.0;
 
+            updateUI("loading");
             await audio.play();
             errorRetryCount = 0; // Reset on success
             setStatus(`Playing ${station.name}`);
+            updateUI();
           } catch (e) {
-            setStatus(`Retry failed (${errorRetryCount}/${MAX_RETRY_ATTEMPTS})`);
+            console.error(`❌ Retry ${errorRetryCount} failed:`, e);
+            if (errorRetryCount >= MAX_RETRY_ATTEMPTS) {
+              updateUI("error");
+              setStatus(`Failed to connect to ${station.name}. Click to retry.`);
+            } else {
+              setStatus(`Retry ${errorRetryCount} failed. Trying again...`);
+            }
           }
         }
       }, RETRY_DELAY_MS);
     } else {
       errorRetryCount = 0;
-      setStatus("Stream error. Please try again.");
-      updateUI();
+      updateUI("error");
+      setStatus("Connection failed. Click station to retry.");
     }
   });
 
