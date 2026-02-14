@@ -586,6 +586,8 @@
   let errorRetryCount = 0;
   const MAX_RETRY_ATTEMPTS = 3;
   const RETRY_DELAY_MS = 3000;
+  let healthCheckInterval = null;
+  let lastPlayingTime = Date.now();
 
   /* ===== HLS integration ===== */
   let hls = null;
@@ -918,6 +920,7 @@
   audio.addEventListener("playing", () => {
     cancelBufferingStatus();
     errorRetryCount = 0; // Reset error count on successful playback
+    lastPlayingTime = Date.now(); // Update last playing timestamp
     if (currentIndex != null) {
       setStatus("Playing " + STATIONS[currentIndex].name);
     }
@@ -1025,10 +1028,60 @@
     }
   });
 
+  /* ===== Stream health check - detects silent/stuck streams ===== */
+  function startHealthCheck() {
+    // Clear any existing health check
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval);
+    }
+
+    // Check every 30 seconds if stream is still playing
+    healthCheckInterval = setInterval(() => {
+      if (currentIndex === null || audio.paused) return;
+
+      const now = Date.now();
+      const timeSinceLastPlay = now - lastPlayingTime;
+
+      // If more than 45 seconds since last "playing" event, stream may be stuck
+      if (timeSinceLastPlay > 45000) {
+        console.warn('⚠️ Stream appears stuck, attempting reconnect...');
+        const station = STATIONS[currentIndex];
+
+        // Trigger reconnection
+        audio.pause();
+        setTimeout(async () => {
+          if (currentIndex !== null) {
+            try {
+              destroyHls();
+              audio.removeAttribute("src");
+              audio.load();
+
+              attachStreamToAudio(station);
+              audio.load();
+
+              await audio.play();
+              console.log('✅ Health check: Stream reconnected');
+            } catch (e) {
+              console.error('❌ Health check: Reconnection failed', e);
+            }
+          }
+        }, 1000);
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  function stopHealthCheck() {
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval);
+      healthCheckInterval = null;
+    }
+  }
+
   // Init
   renderStations();
   updateUI();
   startAllMetadataPolling();
+  startHealthCheck();
 
   // Trigger drop-in animation on page load, then remove to allow live updates
   setTimeout(() => {
