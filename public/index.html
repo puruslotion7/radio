@@ -238,19 +238,22 @@
       background: currentColor;
       transform-origin: bottom;
       opacity: 0.8;
+      transform: scaleY(0.2);
       transition: transform 0.08s ease-out;
-      animation: dropIn 0.6s ease-out forwards;
     }
-    .eq span:nth-child(1) { animation-delay: 0.05s; }
-    .eq span:nth-child(2) { animation-delay: 0.10s; }
-    .eq span:nth-child(3) { animation-delay: 0.15s; }
-    .eq span:nth-child(4) { animation-delay: 0.20s; }
-    .eq span:nth-child(5) { animation-delay: 0.25s; }
-    .eq span:nth-child(6) { animation-delay: 0.30s; }
-    .eq span:nth-child(7) { animation-delay: 0.35s; }
-    .eq span:nth-child(8) { animation-delay: 0.40s; }
-    .eq span:nth-child(9) { animation-delay: 0.45s; }
-    .eq span:nth-child(10) { animation-delay: 0.50s; }
+    .eq.init span {
+      animation: dropIn 0.6s ease-out;
+    }
+    .eq.init span:nth-child(1) { animation-delay: 0.05s; }
+    .eq.init span:nth-child(2) { animation-delay: 0.10s; }
+    .eq.init span:nth-child(3) { animation-delay: 0.15s; }
+    .eq.init span:nth-child(4) { animation-delay: 0.20s; }
+    .eq.init span:nth-child(5) { animation-delay: 0.25s; }
+    .eq.init span:nth-child(6) { animation-delay: 0.30s; }
+    .eq.init span:nth-child(7) { animation-delay: 0.35s; }
+    .eq.init span:nth-child(8) { animation-delay: 0.40s; }
+    .eq.init span:nth-child(9) { animation-delay: 0.45s; }
+    .eq.init span:nth-child(10) { animation-delay: 0.50s; }
     @keyframes dropIn {
       from { transform: scaleY(1.5); }
       to { transform: scaleY(0.2); }
@@ -987,6 +990,14 @@
   renderStations();
   updateUI();
   startAllMetadataPolling();
+
+  // Trigger drop-in animation on page load, then remove to allow live updates
+  setTimeout(() => {
+    document.querySelectorAll(".eq").forEach(eq => eq.classList.add("init"));
+    setTimeout(() => {
+      document.querySelectorAll(".eq").forEach(eq => eq.classList.remove("init"));
+    }, 1200); // Remove after animation completes (600ms + delays)
+  }, 100);
 
   /* ===== Visitor tracking with WebSocket ===== */
   const visitorNumberEl = document.getElementById('visitorNumber');
