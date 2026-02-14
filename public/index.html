@@ -617,11 +617,11 @@
     if (wantsHls && !canNativeHls && window.Hls && window.Hls.isSupported()) {
       hls = new Hls({
         lowLatencyMode: false,
-        backBufferLength: 10,
-        maxBufferLength: 300,
-        maxMaxBufferLength: 300,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 10,
+        backBufferLength: 5,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 10,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 5,
         enableWorker: true,
         debug: false
       });
@@ -637,7 +637,19 @@
           networkDetails: data.networkDetails
         });
 
+        // Show error on page
         if (data.fatal) {
+          const errorMessages = {
+            [Hls.ErrorTypes.NETWORK_ERROR]: `Network error: ${data.details}`,
+            [Hls.ErrorTypes.MEDIA_ERROR]: `Media error: ${data.details}`,
+            [Hls.ErrorTypes.MUX_ERROR]: `Stream error: ${data.details}`,
+            [Hls.ErrorTypes.KEY_SYSTEM_ERROR]: `DRM error: ${data.details}`
+          };
+
+          const errorMsg = errorMessages[data.type] || `Stream error: ${data.details}`;
+          setStatus(`${errorMsg} - Attempting recovery...`);
+          updateUI("retrying");
+
           switch(data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
               console.error('💥 Fatal network error - attempting recovery');
@@ -649,8 +661,13 @@
               break;
             default:
               console.error('💥 Unrecoverable error - destroying HLS');
+              updateUI("error");
+              setStatus(`${errorMsg} - Click station to retry.`);
               break;
           }
+        } else {
+          // Non-fatal error - just log and show brief message
+          setStatus(`Minor playback issue: ${data.details}`);
         }
       });
 
