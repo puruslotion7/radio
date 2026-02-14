@@ -614,16 +614,7 @@
             audio.canPlayType("application/vnd.apple.mpegurl") === 'probably' ||
             audio.canPlayType("application/x-mpegURL") === 'probably';
 
-    console.log('🔧 attachStreamToAudio:', {
-      station: station.name,
-      url: url,
-      wantsHls: wantsHls,
-      canNativeHls: canNativeHls,
-      hlsSupported: window.Hls && window.Hls.isSupported()
-    });
-
     if (wantsHls && !canNativeHls && window.Hls && window.Hls.isSupported()) {
-      console.log('📦 Using hls.js for', station.name);
       hls = new Hls({
         lowLatencyMode: false,
         backBufferLength: 10,
@@ -635,23 +626,7 @@
         debug: false
       });
 
-      // Comprehensive HLS event logging
-      hls.on(Hls.Events.MANIFEST_PARSED, function() {
-        console.log('✅ HLS: Manifest parsed successfully');
-      });
-
-      hls.on(Hls.Events.LEVEL_LOADED, function(event, data) {
-        console.log('✅ HLS: Level loaded', data.details);
-      });
-
-      hls.on(Hls.Events.FRAG_LOADING, function(event, data) {
-        console.log('⏳ HLS: Loading fragment', data.frag.url);
-      });
-
-      hls.on(Hls.Events.FRAG_LOADED, function(event, data) {
-        console.log('✅ HLS: Fragment loaded', data.frag.url);
-      });
-
+      // HLS error handling
       hls.on(Hls.Events.ERROR, function (event, data) {
         console.error('❌ HLS Error:', {
           type: data.type,
@@ -684,7 +659,6 @@
       return;
     }
 
-    console.log('🎵 Using native audio playback for', station.name);
     audio.src = url;
   }
 
@@ -710,7 +684,6 @@
         try {
           const data = JSON.parse(event.data);
           const metadata = data.radiotext || data.title || data.artist || null;
-          console.log(`SSE data for ${station.name}:`, metadata);
           updateNowPlaying(index, metadata);
         } catch (err) {
           console.error(`SSE parse error for ${station.name}:`, err);
@@ -740,10 +713,6 @@
     async function poll() {
       try {
         const metadata = await station.metadataCallback();
-        // Only log when metadata is found
-        if (metadata) {
-          console.log(`✓ ${station.name}:`, metadata);
-        }
         updateNowPlaying(index, metadata);
       } catch (err) {
         console.error(`Metadata fetch failed for ${station.name}:`, err);
@@ -1035,39 +1004,53 @@
       clearInterval(healthCheckInterval);
     }
 
-    // Check every 30 seconds if stream is still playing
+    // Check every 2 minutes if stream is still playing (less aggressive)
     healthCheckInterval = setInterval(() => {
       if (currentIndex === null || audio.paused) return;
 
-      const now = Date.now();
-      const timeSinceLastPlay = now - lastPlayingTime;
+      // Check if audio is actually stuck by examining multiple signals
+      const isBuffering = audio.readyState < 3; // HAVE_FUTURE_DATA
+      const hasError = audio.error !== null;
+      const networkIdle = audio.networkState === 2; // NETWORK_IDLE (could mean stuck)
 
-      // If more than 45 seconds since last "playing" event, stream may be stuck
-      if (timeSinceLastPlay > 45000) {
-        console.warn('⚠️ Stream appears stuck, attempting reconnect...');
-        const station = STATIONS[currentIndex];
+      // Also check if audio time is progressing (for non-live streams this works)
+      const currentTime = audio.currentTime;
 
-        // Trigger reconnection
-        audio.pause();
-        setTimeout(async () => {
-          if (currentIndex !== null) {
-            try {
-              destroyHls();
-              audio.removeAttribute("src");
-              audio.load();
-
-              attachStreamToAudio(station);
-              audio.load();
-
-              await audio.play();
-              console.log('✅ Health check: Stream reconnected');
-            } catch (e) {
-              console.error('❌ Health check: Reconnection failed', e);
-            }
-          }
-        }, 1000);
+      // Only reconnect if there are actual signs of problems
+      if (hasError) {
+        console.warn('⚠️ Audio error detected, attempting reconnect...');
+        reconnectStream();
+      } else if (isBuffering && networkIdle) {
+        console.warn('⚠️ Stream buffering with idle network, may be stuck...');
+        reconnectStream();
       }
-    }, 30000); // Check every 30 seconds
+      // Otherwise, assume stream is healthy even if "playing" event hasn't fired
+    }, 120000); // Check every 2 minutes
+  }
+
+  function reconnectStream() {
+    if (currentIndex === null) return;
+
+    const station = STATIONS[currentIndex];
+    audio.pause();
+
+    setTimeout(async () => {
+      if (currentIndex !== null) {
+        try {
+          destroyHls();
+          audio.removeAttribute("src");
+          audio.load();
+
+          attachStreamToAudio(station);
+          audio.load();
+
+          await audio.play();
+          console.log('✅ Health check: Stream reconnected');
+        } catch (e) {
+          console.error('❌ Health check: Reconnection failed', e);
+        }
+      }
+    }, 1000);
   }
 
   function stopHealthCheck() {
