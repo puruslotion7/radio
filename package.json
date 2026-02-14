@@ -8,15 +8,18 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
+    "build": "tsc && npm run minify",
+    "build:prod": "tsc && npm run minify",
+    "minify": "node scripts/minify-html.js",
     "start": "node ./dist/index.js",
-    "dev": "nodemon --watch src --ext ts --exec \"npm run build && npm start\"",
+    "dev": "nodemon --watch src --ext ts --exec \"tsc && npm start\"",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\""
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",
     "@types/ws": "^8.18.1",
@@ -25,11 +28,13 @@
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
+    "html-minifier-terser": "^7.2.0",
     "nodemon": "^3.1.11",
     "prettier": "^3.8.1",
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "express": "^5.2.1",
     "ws": "^8.19.0"
   }
